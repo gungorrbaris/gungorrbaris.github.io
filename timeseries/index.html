@@ -1,0 +1,1623 @@
+---
+title: "Zaman Serisi Analizi"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+
+
+# BÖLÜM 1: GİRİŞ
+
+## 1.1 Veri
+
+Analiz boyunca kullanılaan veri, ABD Enerji Bilgi Yönetim İdaresi (eia) tarafından 1973-2021 yılları arasında tutulan aylık elektrik tüketimi verisidir.
+
+Veriye buradan ulaşabilirsiniz: [Veri](https://www.eia.gov/totalenergy/data/browser/xls.php?tbl=T07.06&freq=m)     /            [eia](https://www.eia.gov/totalenergy/data/monthly/)
+
+### 1.1.1 Verinin yüklenmesi:
+```{r}
+veri <- read.csv("https://raw.githubusercontent.com/gungorrbaris/zaman-serisi-analizi-R/main/data/Table_7.6_Electricity_End_Use.csv")
+knitr::kable(head(veri), align = "c")
+```
+
+
+### 1.1.2 Verinin Düzenlenmesi:
+
+Tarih değişkenini Ay-Yıl formatına getirelim:
+```{r}
+tarih = seq(from = as.Date("1973-01-01"), to = as.Date("2021-11-01"), by = 'month')
+veri$Month <- tarih
+veri$Month <-format(veri$Month, "%m-%Y")
+knitr::kable(head(veri), align = "c")
+```
+
+
+Değişken isimlerini türkçeleştirelim:
+```{r}
+colnames(veri) <- c("Tarih","Elektrik_Tuketimi")
+knitr::kable(head(veri), align = "c")
+```
+## 1.2 Kullanılan Kütüphaneler
+
+```{r}
+
+```
+
+
+# BÖLÜM 2: ANALİZE GİRİŞ - SERİNİN HAZIRLANMASI
+
+## 2.1 Zaman Serisinin Oluşturulması
+
+```{r}
+veri_ts <- ts(data = veri$Elektrik_Tuketimi, start = c(1973, 01), end = c(2021, 11), frequency = 12 )
+```
+
+Verimizde gözlemler aylık olduğu için frekans değeri (frequency) 12 olarak belirlenmelidir.
+
+
+## 2.2 Zaman Serisi Grafiğinin Çizilmesi
+
+```{r}
+library(foreach)
+
+ts.plot(veri_ts,gpars=list(xlab="Zaman", ylab="Elektrik Tüketimi"))
+```
+
+
+**Zaman Serisi Grafiğine bakıldığında:**
+
+- Pozitif yönlü artış vardır. Bu yüzden Serinin artan bir **trende sahip** olduğunu söyleyebiliriz.
+
+- Seride düzenli dalgalanmaların olduğu görülmektedir. Bu seride **mevsimsellik** olabileceğini gösterir.
+Daha kesin sonuç için ACF grafiğini çizelim.
+
+
+## 2.3 ACF Grafiğinin Çizilmesi
+
+
+### ! BİLGİ !
+>_**Gecikmeli seri:** Serilerdeki verilerin dönem kaydırılması işlemi ile ortaya çıkan serilerdir. Zt bir zaman serisi değişkeni ise; bir dönem gecikmeli zaman serisi Zt-1, iki dönem gecikmeli Zt-2 ve k dönem gecikmeli Zt-k ile gösterilir._
+
+>_**Otokorelasyon katsayısı:** Zaman serileri ile bu serilerin gecikmeli serileri arasındaki ilişkileri verir._ 
+
+>_**ACF:** Otokorelasyon fonksiyonu (Autocorrelation function) demektir. Otokorelasyon katsayısı değerlerinden oluşur._
+
+
+
+>**Seride trendin olduğunu anlamak için ACF grafiğindeki ilk dört gecikmeye bakmak yeterlidir. İlk dört gecikme sınırlar dışındaysa seri için "trende sahiptir" diyebiliriz.**
+
+```{r}
+library(fpp)
+Acf(veri_ts,lag.max = 42,  ylim=c(-1,1), lwd=5,main="Orijinal veri ACF Grafiği")
+```
+
+
+**ACF Grafiğine bakıldığında:**
+
+- Tüm gecikmeler (4 gecikme olması yeterlidir) sınırlar dışında olduğu için zaman serisinin **trende sahip** olduğu söylenebilir. Bu yüzden serinin farkı alınıp durağan hale getirilmelidir.
+
+- Trend ile birlikte düzenli dalgalanmaların olduğu gözükse de baskın bir mevsimsellikten şu an için bahsedemeyiz. 
+
+## 2.4 Birinci Farkın Alınması
+
+### ! BİLGİ !
+>_**Fark Alınması:** Zaman serisinin akışkanlı bir şekilde  son değerlerinden belli bir dönem önceki değerlerinin çıkarılması işlemidir. Bu işlem sayesinde serideki trend ya da mevsimsel dalgalanmaları yok etmek mümkün olmaktadır._
+
+
+```{r}
+veri_birinci_fark <- diff(veri_ts, differences = 1)
+```
+
+### 2.4.1 Farkı alınmış seri için ACF:
+```{r}
+Acf(veri_birinci_fark,lag.max = 42,  ylim=c(-1,1), lwd=5,main="Birinci Fark sonrası ACF Grafiği")
+```
+
+### MEVSİMSELLİK
+**Birinci Farkı alınmış seri için ACF Grafiğine bakıldığında:**
+
+- Yine tüm gecikmeler sınırlar dışında olduğu için birinci farkı alınmış zaman serisinin de trende sahip olduğu söylenebilir. Fakat bir öncekine göre bu ACF grafiğinde baskın bir **mevsimsellik** görülüyor. Dalgalanmalar ve gecikmelerde olan düzenli sıçramalar bunu destekliyor.  
+
+## 2.5 Birinci Mevsimsel Farkın Alınması
+
+### ! BİLGİ !
+>_**Mevsimsel Farkın Alınması:** Normal fark işleminden tek farkı periyodunun işleme dahil edilmesidir._
+
+### Periyodun bulunması:
+- _Kullandığımız veri aylık olduğu için periyodunun 12 olduğunu biliyoruz._
+- _Periyodun bilinmediği durumlar için en iyi yöntem ACF değerlerine bakmaktır._
+
+**ACF ile periyodun bulunması:**
+```{r}
+Acf(veri_birinci_fark,lag.max = 42,  ylim=c(-1,1), lwd=5,main="Birinci Fark sonrası ACF Grafiği",plot=FALSE)
+```
+
+>_İhtiyacımız olan en büyük ve en büyük ikinci değer arasında kaç gecikmenin olduğunu bulmaktır. (Burada ilk değer dahil edilmemelidir.)_
+
+**ACF değerlerine bakıldığında:**
+
+- En büyük değerin 12. gecikme (0.910), en büyük ikinci gecikmenin ise 24. gecikme (0.874) olduğu gözükmektedir. 
+
+- 12 ve 24 gecikme arasında toplam 12 değer olduğu için; birinci farkı alınmış serinin **periyodunun 12 olduğunu söyleyebiliriz**. 
+
+### 2.5.2 Mevsimsel Fark İşlemi:
+
+```{r}
+veri_ts_mev1 <- diff(veri_birinci_fark,12)
+
+```
+
+
+### 2.5.3 Mevsimsel Farkı alınmış seri için ACF:
+
+```{r}
+Acf(veri_ts_mev1,lag.max = 42,  ylim=c(-1,1), lwd=5,main="Birinci Mevsimsel Fark sonrası ACF Grafiği")
+```
+
+
+**Birinci Mevsimsel Farkı alınmış seri için ACF Grafiğine bakıldığında:**
+
+- İlk dört gecikmeden sadece iki tanesi sınırları geçtiği için **trendin kaybolduğunu** söyleyebiliriz.
+
+- Düzenli dalgalanmaların dolayısıyla **mevsimselliğin de kaybolduğunu** söyleyebiliriz. 
+
+
+## 2.6 Durağanlık
+
+>**Durağanlık;** Zaman serisi verilerinin belirli bir zaman sürecinde sürekli artma veya azalmanın olmadığı, verilerin zaman boyunca bir yatay eksen boyunca saçılım göstermesi olarak tanımlanır. Genel bir tanımlama ile, sabit ortalama, sabit varyans ve seriye ait iki değer arasındaki farkın zamana değil, yalnızca iki zaman değeri arasındaki farka bağlı olması şeklinde ifade edilir.
+
+>Eğer bir seri durağan ise serinin beklenen değeri ve varyansı sabit, kovaryansı zamandan
+bağımsız sadece gecikme sayısına dayalı olmalıdır. Dolayısıyla,
+
+> E(Zt) = μ <br/>
+V(Zt) = σ^2 <br/>
+cov(Zt,Zt+k) = γ <br/>
+eşitliklerinin hepsi sağlanmalıdır.
+
+>>**Kaynak:** _Prof. Dr. Cem Kadılar, Dr. Hatice Öncel Çekim SPSS ve R Uygulamalı Zaman Serileri Analizine Giriş_ 
+
+### Seri Neden Durağan Omalı?
+
+- Zaman serisi ile ilgili yapılan çalışmalar serinin Durağan olduğunu varsayar. Çünkü bir zaman serisi durağan değilse, serinin davranışını sadece ele alınan dönem için inceleyebiliriz.
+
+- **Dolayısıyla Bundan sonraki İşlemlerde durağan hale getirilen (Bir normal, bir mevsimsel fark işleminden sonra) seri üzerinden analiz yapılacaktır. **
+
+
+
+# BÖLÜM 3: AYRIŞTIRMA YÖNTEMLERİ
+
+>Zaman serisini bileşenlerine ayırarak her bir bileşen için
+tahminleri içeren ve bu bileşenlerin tahmininden zaman serisinin öngörüsünü hesaplayan yönteme **Ayrıştırma Yöntemi** denmektedir. 
+
+>Ayrıştırma yöntemi genel olarak iki sınıfa ayrılabilir.<br/> 
+1.Toplamsal Ayrıştırma Yöntemi<br/> 
+2.Çarpımsal Ayrıştırma Yöntemi
+
+
+# 3.1 Toplamsal Ayrıştırma Yöntemi
+
+>Toplamsal model; zaman serisinin, bileşenlerin toplamından oluştuğunu kabul eder.<br/>
+Zt = Tt + Mt + εt
+
+>Matematiksel olarak,  Zt=f(Tt, Mt , Ct, εt) şeklinde gösterilip tahmini ise : Z =f(Tt, Mt , Ct)’dir. Bilinen en eski öngörü yöntemlerinden olup kısa dönemli öngörülerde anlaşılması ve yapılması en kolay yöntemdir. Trende ve Mevsimselliğe sahip verilerde kullanılır.
+
+## 3.1.1 Trend Bileşeni ve Periyodun Bulunması
+
+**Trend Bileşeni:**
+
+>Serinin Trend Bileşeni Regresyon analizi yardımı ile oluşturulur.
+
+```{r}
+veri_trend <- tslm(veri_ts~trend)
+```
+
+
+- _Burada dikkat edilmesi gereken, denkleme orijinal serinin eklenmiş olmasıdır._
+
+- Oluşturulan Regresyon denklemindeki **fitted.values** değişkeni dikkate alınır.
+
+- **fitted.values** değişkeni orijinal serinin trend bileşeni olur.
+
+
+```{r}
+head(veri_trend[["fitted.values"]],n=36)
+```
+
+
+**Periyodun Bulunması:**
+
+>Orijinal zaman Serisi ve trend bileşeninin farkını alarak periyodu bulabiliriz.
+
+```{r}
+periyot_trend <- veri_ts - veri_trend[["fitted.values"]]
+```
+
+
+Serinin periyoduna sahip mevsimsel bileşen serisinin ACF değerleri ile periyodu bulalım:
+
+```{r}
+Acf(periyot_trend,lag.max = 42,  ylim=c(-1,1), lwd=5,plot=FALSE)
+```
+**ACF değerlerine bakıldığında:**
+
+- En büyük değerin 12. gecikme (0.916), en büyük ikinci gecikmenin ise 24. gecikme (0.853) olduğu gözükmektedir. 
+
+- 12 ve 24 gecikme arasında toplam 12 değer olduğu için; birinci farkı alınmış serinin **periyodunun 12 olduğunu söyleyebiliriz**. 
+
+**[Buradaki](#periyodun-bulunması) başlıkta periyot bulma işlemini yapmış ve aynı sonuca ulaşmıştık. **
+
+
+> Mevsimsel, döngüsel veya düzensiz dalgalanmaları yok etme ya da belli
+bir miktar düzleştirme amacıyla **basit hareketli ortalama** ya da **merkezsel hareketli ortalama** işlemlerine ihtiyaç duyulmaktadır.
+
+> Ayrıştırma Yönteminde **merkezsel hareketli ortalamayı** mevsimsel bileşeni bulmak için kullanacağız.
+
+## 3.1.2 Merkezsel Hareketli Ortalama Hesabı
+
+```{r}
+veri_trend_1 <- ma(veri_ts, order = 12, centre = TRUE)
+```
+
+>>Burada order = germe sayısı, bir önceki adımda bulduğumuz periyot ile aynı olmalıdır.
+
+
+## 3.1.3 Mevsimsel Bileşenin Bulunması
+
+>Mevsimsel bileşene ulaşmak için yukarıda hesapladığımız merkezsel hareketli ortalama serisini, orijinal seriden çıkartmamız gerekiyor.
+
+```{r}
+mevsim3 <- veri_ts - veri_trend_1
+head(mevsim3,n=36)
+```
+
+## 3.1.4 Mevsim serisinin ortalamaları
+
+>Mevsimsel bileşendeki hata teriminin yok edilebilmesi için her bir periyottaki dönemlerin ortalama değerleri hesaplanır.
+
+```{r}
+donemort3<-t(matrix(data=mevsim3, nrow = 12))
+head(donemort3)
+```
+
+**Periyottaki dönemlerin ortalama değerleri:**
+
+```{r}
+colMeans(donemort3, na.rm = T)
+```
+
+
+**Periyottaki dönemlerin ortalama değerlerinin toplamı:**
+
+```{r}
+sum(colMeans(donemort3, na.rm = T))
+```
+
+>Bu değerin 0 olması gerekmektedir. 0 olmadığı için ortalamaların ortalaması alınmalıdır. Bu ortalama değer diğer tüm ortalama değerlerden çıkartılır ve mevsimsel endeks serisi bulunur. 
+
+
+**Periyottaki dönemlerin ortalama değerlerinin ortalaması:**
+```{r}
+mean(colMeans(donemort3, na.rm = T))
+```
+
+## 3.1.5 Mevsimsel Endeksin Bulunması
+
+```{r}
+endeks1 <- colMeans(donemort3, na.rm = T) - mean(colMeans(donemort3, na.rm = T))
+
+endeks1
+```
+>>Bu 12 mevsimsel endeks değeri periyottaki dönemlere dikkat edilerek (ilk döneme karşılık M1; ikinci döneme karşılık M2; üçüncü
+döneme karşılık M3, ... , on ikinci döneme karşılık M12 gelecek şekilde) seri boyunca tekrar tekrar yazılabilmesi için aşağıdaki adım gerçekleştirilir.
+
+**İndeks Değerlerini Seri Boyunca Yazdırma İşlemi:**
+
+```{r}
+indeks<-  matrix(data = endeks1, nrow = 587)
+head(indeks)
+```
+
+## 3.1.6 Hata Terimli Trend Bileşeninin Bulunması
+
+```{r}
+trendhata <- veri_ts - indeks
+```
+
+**Hata Terimli Trend Bileşeninine ait zaman serisi grafiği:**
+
+```{r}
+plot.ts(trendhata)
+```
+
+
+>>Elde edilen bu trent serisinde hata terimi de olduğundan seriye ''trendhata'' adı verilir. Bu seriyi hata teriminden arındırabilmek amacıyla trendhata serisine doğrusal regresyon uygulanır.
+
+```{r}
+trend1<-tslm(ts(trendhata)~trend)
+```
+
+- Burada fitted.values değişkeni dikkate alınır. 
+
+- fitted.values değişkeni orijinal serinin trend bileşeni olur.
+
+```{r}
+head(trend1[["fitted.values"]],n=24)
+```
+
+## 3.1.7 Tahmin ve Hata Serilerinin Bulunması
+
+**Tahmin Bileşenlerini Bulalım:**
+
+>>tahmin = mevsimsel endeks + saf trend serisi
+
+```{r}
+tahmin<- indeks+trend1[["fitted.values"]]
+tahmin <- ts(data = tahmin, start = c(1973, 01), end = c(2021, 11), frequency = 12 )
+plot(tahmin,main = "Tahmin Serisi Grafiği")
+```
+
+**Hata Bileşenlerini Bulalım:**
+
+>>hata = saf trend serisi - tahmin 
+
+```{r}
+hata <- ts(veri_ts) - ts(tahmin)
+plot(hata,main = "Tahmin serisi için Hata Serisi Grafiği")
+```
+
+## 3.1.8 Modelin Güvenirliği 
+
+>Toplamsal modelin orijinal seri üzerinde geçerli bir model olup olmadığını kontrol edelim. 
+
+**Orijinal seri ile tahmin serisinin uyumu:**
+
+```{r}
+plot( window(veri_ts), 
+      xlab="Zaman", ylab="",lty=1, col=4, lwd=2,main="Orijinal Seri ve Tahmin Serisinin Birlikte Grafiği")
+lines( window(tahmin) ,lty=3,col=2,lwd=3)
+legend("topleft",c(expression(paste(OrijinalSeri )),
+                   expression(paste(Tahmin ))),
+       lwd=c(2,2),lty=c(1,3), cex=0.6, col=c(4,2))
+
+```
+
+**Zaman Serisi Grafiğine bakıldığında:**
+
+- Tahmin ile orijinal seri arasında sapmanın yüksek olduğunu dolayısıyla **uyum göstermediğini** söyleyebiliriz. 
+
+- Fakat emin olmak için hataların akgürültü olup olmadığına bakabiliriz.
+
+### Hatalar Akgürültü mü? 
+
+### ! BİLGİ !
+>_**Akgürültü Serisi:** Durağanlık koşullarından tek farkı
+kovaryans teriminin sıfır olmasıdır. Dolayısıyla, akgürültü serisi durağan bir seriden farklı özellikler gösterir. <br/> Örneğin, akgürültü serisi rasgele hareketlere sahip modellenemez bir seri iken durağan serilerin hareketlerinin belli bir sistematiği vardır ve bu nedenle modellenebilmektedir. Akgürültü serisinin tüm gecikmelerindeki otokorelasyon ve kısmi otokorelasyon değerleri önemsizdir._
+
+> ACF ve PACF grafıklerinin yorumunda serinin akgürültü serisi olup olmadığına net bir şekilde karar verilemiyorsa, yani ACF veya PACF grafiklerinde birinci gecikme dışında az sayıda güven sınırını biraz geçen ilişkiler var ise bu durumda seriye Box-Ljung Testi uygulanır.
+
+>Eğer her gecikme için Box-Ljung Testi sonucunda **Ho : rk = 0** yokluk hipotezi kabul edilirse serinin akgürültü serisi olduğu söylenir.
+
+>>>**Kaynak:** _Prof. Dr. Cem Kadılar, Dr. Hatice Öncel Çekim SPSS ve R Uygulamalı Zaman Serileri Analizine Giriş_ 
+
+>> Ho: Hatalar Akgürültüdür.(Hatalar arasında ilişki yoktur.) <br/>
+H1: Hatalar Akgürültü değildir.(Hatalar arasında ilişki vardır.)
+
+
+**Hatalar için ACF Grafiği:**
+
+```{r}
+Acf(hata, lag.max = 42,  ylim=c(-1,1), lwd=5,main="Hatalar için ACF Grafiği")
+```
+
+
+**Hatalar için ACF Grafiğine bakıldığında:**
+
+- Tüm gecikmelerin sınırları geçtiği gözükmektedir.
+
+- Hataların akgürültü olmadığı (Ho RED) Söylenebilir. Box-Ljung testi ile de bunu görebiliriz.
+
+**Box-Ljung Testi:** 
+```{r}
+Box.test(hata,type = "Ljung",lag = 42)
+```
+
+**Box-Ljung test sonucuna bakıldığında:**
+
+- p değeri = 0 < α =0.05 'dir. Yani Ho RED.
+
+- Hatalar Arasında **ilişki olduğunu** yani hataların *akgürültü olmadığını* söyleyebiliriz.
+
+
+## 3.1.9 SONUÇ
+
+**Bir önceki adımda görüldüğü üzere;** 
+
+- _Hatalar Arasında ilişki olduğunu yani hataların akgürültü olmadığını gördük._ 
+
+- _**Sonuç olarak ABD'deki aylık elektrik tüketimi serisinin analizi için Toplumsal Ayrıştırma yöntemi uygun değildir. **_
+
+
+
+# 3.2 Çarpımsal Ayrıştırma Yöntemi
+
+>Çarpımsal model; zaman serisinin, bileşenlerin çarpımından oluştuğunu kabul eder.<br/>
+Zt = Tt * Mt + εt
+
+>Matematiksel olarak Toplamsal ayrıştıma yönteminden tek farkı: <br/>
+- Mevsimsel bileşen, trend bileşeni, endeks, trend hata, ve tahmin değişkenlerini hesaplarken, "-" yerine "/" ; "+" yerine "*" kullanılmasıdır.
+
+## 3.2.1 Trend Bileşeni ve Periyodun Bulunması
+
+**Trend Bileşeni:**
+
+>Serinin Trend Bileşeni Regresyon analizi yardımı ile oluşturulur.
+
+```{r}
+veri_trend2 <- tslm(veri_ts~trend)
+```
+
+
+- _Burada dikkat edilmesi gereken, denkleme orijinal serinin eklenmiş olmasıdır._
+
+- Oluşturulan Regresyon denklemindeki **fitted.values** değişkeni dikkate alınır.
+
+- **fitted.values** değişkeni orijinal serinin trend bileşeni olur.
+
+
+```{r}
+head(veri_trend2[["fitted.values"]],n=36)
+```
+
+
+**Periyodun Bulunması:**
+
+>Orijinal zaman Serisi ve trend bileşeninin farkını alarak periyodu bulabiliriz.
+
+```{r}
+periyot_trend2 <- veri_ts - veri_trend2[["fitted.values"]]
+```
+
+
+Serinin periyoduna sahip mevsimsel bileşen serisinin ACF değerleri ile periyodu bulalım:
+
+```{r}
+Acf(periyot_trend2,lag.max = 42,  ylim=c(-1,1), lwd=5,plot=FALSE)
+```
+**ACF değerlerine bakıldığında:**
+
+- En büyük değerin 12. gecikme (0.916), en büyük ikinci gecikmenin ise 24. gecikme (0.853) olduğu gözükmektedir. 
+
+- 12 ve 24 gecikme arasında toplam 12 değer olduğu için; birinci farkı alınmış serinin **periyodunun 12 olduğunu söyleyebiliriz**. 
+
+**[Buradaki](#periyodun-bulunması) başlıkta periyot bulma işlemini yapmış ve aynı sonuca ulaşmıştık. **
+
+
+>> Mevsimsel, döngüsel veya düzensiz dalgalanmaları yok etme ya da belli
+bir miktar düzleştirme amacıyla **basit hareketli ortalama** ya da **merkezsel hareketli ortalama** işlemlerine ihtiyaç duyulmaktadır.
+
+> Ayrıştırma Yönteminde **merkezsel hareketli ortalamayı** mevsimsel bileşeni bulmak için kullanacağız
+
+## 3.2.2 Merkezsel Hareketli Ortalama Hesabı
+
+```{r}
+veri_trend_2 <- ma(veri_ts, order = 12, centre = TRUE)
+```
+
+>>Burada order = germe sayısı, bir önceki adımda bulduğumuz periyot ile aynı olmalıdır.
+
+
+## 3.2.3 Mevsimsel Bileşenin Bulunması
+
+>Mevsimsel bileşene ulaşmak için yukarıda hesapladığımız merkezsel hareketli ortalama serisini, orijinal seriden bölmemiz gerekiyor.
+
+```{r}
+mevsim4 <- veri_ts / veri_trend_2
+head(mevsim4,n=36)
+```
+
+## 3.2.4 Mevsim serisinin ortalamaları
+
+>Mevsimsel bileşendeki hata teriminin yok edilebilmesi için her bir periyottaki dönemlerin ortalama değerleri hesaplanır.
+
+```{r}
+donemort4<-t(matrix(data=mevsim4, nrow = 12))
+head(donemort4)
+```
+
+**Periyottaki dönemlerin ortalama değerleri:**
+
+```{r}
+colMeans(donemort4, na.rm = T)
+```
+
+
+**Periyottaki dönemlerin ortalama değerlerinin toplamı:**
+
+```{r}
+sum(colMeans(donemort4, na.rm = T))
+```
+
+>Bu değerin 0 olması gerekmektedir. 0 olmadığı için ortalamaların ortalaması alınmalıdır. Bu ortalama değer diğer tüm ortalama değerlere bölünür ve mevsimsel endeks serisi bulunur. 
+
+
+**Periyottaki dönemlerin ortalama değerlerinin ortalaması:**
+```{r}
+mean(colMeans(donemort4, na.rm = T))
+```
+
+## 3.2.5 Mevsimsel Endeksin Bulunması
+
+```{r}
+endeks2 <- colMeans(donemort4, na.rm = T) / mean(colMeans(donemort4, na.rm = T))
+
+endeks2
+```
+>>Bu 12 mevsimsel endeks değeri periyottaki dönemlere dikkat edilerek (ilk döneme karşılık M1; ikinci döneme karşılık M2; üçüncü
+döneme karşılık M3, ... , on ikinci döneme karşılık M12 gelecek şekilde) seri boyunca tekrar tekrar yazılabilmesi için aşağıdaki adım gerçekleştirilir.
+
+**Mevsimsel Endeksin ortalaması:**
+>> Mevsimsel endekin ortalaması yani Dönem ortalamalarının ortalaması 1'e eşit olmalıdır.
+
+```{r}
+mean(endeks2)
+```
+
+- Dönem ortalamalarının ortalaması 1'e eşittir. Bu hata yapmadığımızı gösterir.
+
+**İndeks Değerlerini Seri Boyunca Yazdırma İşlemi:**
+
+```{r}
+indeks2<-  matrix(data = endeks2, nrow = 587)
+head(indeks2)
+```
+
+## 3.2.6 Hata Terimli Trend Bileşeninin Bulunması
+
+```{r}
+trendhata2 <- veri_ts / indeks2
+```
+
+**Hata Terimli Trend Bileşeninine ait zaman serisi grafiği:**
+
+```{r}
+plot.ts(trendhata2)
+```
+>>Elde edilen bu trent serisinde hata terimi de olduğundan seriye ''trendhata2'' adı verilir. Bu seriyi hata teriminden arındırabilmek amacıyla trendhata serisine doğrusal regresyon uygulanır.
+
+```{r}
+trend2<-tslm(ts(trendhata2)~trend)
+```
+
+- Burada fitted.values değişkeni dikkate alınır. 
+
+- fitted.values değişkeni orijinal serinin trend bileşeni olur.
+
+```{r}
+head(trend2[["fitted.values"]],n=24)
+```
+
+## 3.2.7 Tahmin ve Hata Serilerinin Bulunması
+
+**Tahmin Bileşenlerini Bulalım:**
+
+>>tahmin = mevsimsel endeks + saf trend serisi
+
+```{r}
+tahmin2<- indeks2*trend2[["fitted.values"]]
+tahmin2 <- ts(data = tahmin2, start = c(1973, 01), end = c(2021, 11), frequency = 12 )
+plot(tahmin2,main = "Tahmin Serisi Grafiği")
+```
+
+**Hata Bileşenlerini Bulalım:**
+
+>>hata = saf trend serisi - tahmin 
+
+```{r}
+hata2 <- ts(veri_ts) - ts(tahmin2)
+plot(hata2,main = "Tahmin serisi için Hata Serisi Grafiği")
+```
+
+## 3.2.8 Modelin Güvenirliği 
+
+>Çarpımsal modelin orijinal seri üzerinde geçerli bir model olup olmadığını kontrol edelim. 
+
+**Orijinal seri ile tahmin serisinin uyumu:**
+
+```{r}
+plot( window(veri_ts), 
+      xlab="Zaman", ylab="",lty=1, col=4, lwd=2,main="Orijinal Seri ve Tahmin Serisinin Birlikte Grafiği")
+lines( window(tahmin2) ,lty=3,col=2,lwd=3)
+legend("topleft",c(expression(paste(OrijinalSeri )),
+                   expression(paste(Tahmin ))),
+       lwd=c(2,2),lty=c(1,3), cex=0.6, col=c(4,2))
+
+```
+
+**Zaman Serisi Grafiğine bakıldığında:**
+
+- Tahmin ile orijinal seri arasında sapmanın yüksek olduğunu dolayısıyla **uyum göstermediğini** söyleyebiliriz. 
+
+- Fakat emin olmak için hataların akgürültü olup olmadığına bakabiliriz.
+
+### Hatalar Akgürültü mü? 
+
+### ! BİLGİ !
+>_**Akgürültü Serisi:** Durağanlık koşullarından tek farkı
+kovaryans teriminin sıfır olmasıdır. Dolayısıyla, akgürültü serisi durağan bir seriden farklı özellikler gösterir. <br/> Örneğin, akgürültü serisi rasgele hareketlere sahip modellenemez bir seri iken durağan serilerin hareketlerinin belli bir sistematiği vardır ve bu nedenle modellenebilmektedir. Akgürültü serisinin tüm gecikmelerindeki otokorelasyon ve kısmi otokorelasyon değerleri önemsizdir._
+
+> ACF ve PACF grafıklerinin yorumunda serinin akgürültü serisi olup olmadığına net bir şekilde karar verilemiyorsa, yani ACF veya PACF grafiklerinde birinci gecikme dışında az sayıda güven sınırını biraz geçen ilişkiler var ise bu durumda seriye Box-Ljung Testi uygulanır.
+
+>Eğer her gecikme için Box-Ljung Testi sonucunda **Ho : rk = 0** yokluk hipotezi kabul edilirse serinin akgürültü serisi olduğu söylenir.
+
+>>>**Kaynak:** _Prof. Dr. Cem Kadılar, Dr. Hatice Öncel Çekim SPSS ve R Uygulamalı Zaman Serileri Analizine Giriş_ 
+
+>> Ho: Hatalar Akgürültüdür.(Hatalar arasında ilişki yoktur.) <br/>
+H1: Hatalar Akgürültü değildir.(Hatalar arasında ilişki vardır.)
+
+
+**Hatalar için ACF Grafiği:**
+
+```{r}
+Acf(hata2, lag.max = 42,  ylim=c(-1,1), lwd=5,main="Hatalar için ACF Grafiği")
+```
+
+
+**Hatalar için ACF Grafiğine bakıldığında:**
+
+- Tüm gecikmelerin sınırları geçtiği gözükmektedir.
+
+- Hataların akgürültü olmadığı (Ho RED) Söylenebilir. Box-Ljung testi ile de bunu görebiliriz.
+
+**Box-Ljung Testi:** 
+```{r}
+Box.test(hata2,type = "Ljung",lag = 42)
+```
+
+**Box-Ljung test sonucuna bakıldığında:**
+
+- p değeri = 0 < α =0.05 'dir. Yani Ho RED.
+
+- Hatalar Arasında **ilişki olduğunu** yani hataların *akgürültü olmadığını* söyleyebiliriz.
+
+
+## 3.2.9 SONUÇ
+
+**Bir önceki adımda görüldüğü üzere;** 
+
+- _Hatalar Arasında ilişki olduğunu yani hataların akgürültü olmadığını gördük._ 
+
+- _**Sonuç olarak ABD'deki aylık elektrik tüketimi serisinin analizi için Çarpımsal Ayrıştırma yöntemi uygun değildir. **_
+
+
+
+## 3.Bölüm Özet
+
+Bu bölümde; Ayrıştırma Yöntemleri ile ABD'deki aylık elektrik tüketimini tahmin etmeye çalıştık. Fakat uyguladığımız iki model de tahmin etmekte eksik kaldı.
+
+Bundan sonra sırasıyla:
+
+- Regresyon Analizi
+
+- Üstel Düzleştirme Yöntemi
+
+- Box-Jenkins Modelleri uygulanacaktır. 
+
+
+# BÖLÜM 4: MEVSİMSEL ZAMAN SERİLERİNDE REGRESYON ANALİZİ
+
+>Zaman Serileri için Regresyon Analizinde, serinin mevsimsel olup olmamasına göre yöntemler değişiklik göstermektedir.
+
+>>**Sadece trende sahip seriler (Mevsimsel olmayan) için;**<br/>
+Basit Doğrusal Regresyon<br/>
+Birinci Farklar Regresyon Modeli<br/>
+Üstel Regresyon Modeli<br/>
+Karesel Regresyon Modeli<br/>
+Lojistik Regresyon Modeli<br/>
+Kübik Regresyon Modeli<br/>
+gibi yöntemler kullanılabilir.
+
+>>**Hem trende hem de mevsimselliğe sahip seriler için** ise 3. Bölümde gördüğümüz Ayrıştırma Yöntemlerinden yararlanarak Regresyon analizini uygulayabiliriz. 
+
+>>**Kaynak:** _Prof. Dr. Cem Kadılar, Dr. Hatice Öncel Çekim SPSS ve R Uygulamalı Zaman Serileri Analizine Giriş_ 
+
+
+**[Buradaki](#mevsimsellik) başlıkta; Trende sahip serinin birinci farkını aldığımızda serinin aynı zamanda mevsimselliğe sahip olduğunu ACF grafiğine bakarak açıklamıştık.**
+
+>Kullandığımız veri mevsimselliğe sahip olduğu için bu bölümde sadece **Mevsimsel Serilerde Regresyon Analizi yöntemleri** gösterilecektir.
+
+
+
+
+## 4.1 Toplamsal Model İle Regresyon Analizi
+
+### ! BİLGİ !
+>Eğer bir seride hem trent hem de mevsimsellik var ise bu seriye uygulanacak regresyon modeli
+
+![ ](https://raw.githubusercontent.com/gungorrbaris/zaman-serisi-analizi-R/main/png/regresyonZS.png)
+
+biçiminde olmaktadır.
+
+>m: serinin trendinin yapısına göre polinom derecesidir.<br/>
+- m=l doğrusal trende sahip seri içindir.<br/>
+- m=2 karesel regresyona modeline uygun trende sahip seri içindir.<br/>
+- m=3 kübik regresyon modeline uygun trende sahip seri içindir.<br/>
+
+> Formüldeki ilk ∑ ifadesi: serinin trend bileşenini açıklar.
+
+> s:periyot olmak üzere [s /2] periyodun yarısının tamsayı kısmını gösterir. Örneğin, periyot 9 ise [s /2], 4 olmaktadır.
+
+> Burada j indisli toplam, yani köşeli parantez içindeki sinüs ve kosinüs fonksiyonları serinin mevsimsel bileşenini açıklamaktadır. Her regresyon modelinde olduğu gibi bu regresyon denkleminde de tüm katsayıların istatistiksel olarak önemli olması gerekmektedir.
+
+>Sinüs ve kosinüs çiftine harmonik adı verilmektedir. Böylece, j=l için birinci harmonik, j=2 için ikinci harmonik şeklinde j= [s /2] oluncaya kadar regresyon denklemine harmonik eklenir. Ancak her ekleme sonucunda ci ve di regresyon katsayılarının önemlilik kontrolü yapılır.
+
+>>Bu regresyon katsayılarından biri önemsiz olduğunda harmonik ekleme işlemine son verilir ve önemsiz olan regresyon katsayısına ait terim modelden atılarak serinin tahmininde katsayılarının hepsi önemli olan regresyon modeli kullanılır.
+
+
+>Uygulama verilerinde genellikle sadece birinci harmonikler seriyi açıklamada yeterli olmaktadır. Dolayısıyla, genellikle ikinci harmonikler regresyon modeline eklenmemektedir. Ayrıca, j= [s/2] için periyot çift sayı iken sinüs fonksiyonu, yani sin(nt) hep 0 değerini alacağından ilgili harmonikte sinüs serisinin oluşturulmamasına ve regresyon modeline eklenmemesine dikkat edilmelidir.
+
+>>**Kaynak:** _Prof. Dr. Cem Kadılar, Dr. Hatice Öncel Çekim SPSS ve R Uygulamalı Zaman Serileri Analizine Giriş_ 
+
+
+## 4.1.1 t, Sin ve Cos Terimlerinin oluşturulması
+
+_Serimiz, hem trende hem de mevsimsel dalgalanmaya sahip olduğundan regresyon modelinin; t, sinüs ve kosinüs terimlerini içermesi gerekmektedir._
+
+```{r}
+t <- 1: 1: 587
+```
+
+
+Veride 144 gözlem bulunduğu için bu değerler girilmiştir.
+
+
+```{r}
+sin1<-sin(2*3.1416*t/12)
+cos1<-cos(2*3.1416*t/12)
+```
+
+
+Sin ve Cos değerleri bulunurken yazılan formüldeki 12 değeri, daha önceki bölümlerde bulduğumuz periyottur. 
+ 
+**veri, t, sin ve cos terimleri ile yeni bir veri oluşturulur:**
+
+```{r}
+veri_mev_yeni <- as.data.frame(cbind(veri_ts, t, sin1, cos1))
+names(veri_mev_yeni)<- c("y", "t", "sin1", "cos1")
+
+knitr::kable(head(veri_mev_yeni), align = "c")
+```
+
+## 4.1.2 Regresyon Modelinin Oluşturulması
+
+### Birinci Harmonik
+
+Oluşturulan yeni veri ile regresyon analizi yapılır. 
+
+```{r}
+regresyon.model1<-lm(data = veri_mev_yeni, y ~ t+sin1+cos1)
+summary(regresyon.model1)
+```
+
+**Birinci Harmonik için Regresyon modeli sonucuna göre:**
+
+- Coefficients kısmındaki p değerlerinin hepsi < α =0.05 olduğundan, modeldeki **tüm terimlerin önemli olduğunu** söyleyebiliriz. 
+
+- p-value değeri < α =0.05 olduğundan kurulan **regresyon modelinin anlamlı olduğunu** söyleyebiliriz.
+
+
+### İkinci Harmonik
+
+Birinci harmonikte tüm terimler anlamlı çıktığından ikinci harmonikte de regresyon denklemine katılırlar. 
+
+**Sin, Cos Terimlerinin oluşturulması:**
+
+```{r}
+sin2<-sin(2*3.1416*2*t/12)
+cos2<-cos(2*3.1416*2*t/12)
+```
+
+
+**Yeni Verinin Oluşturulması:**
+
+Yeni veri oluşturulurken birinci harmonikte kullanılan sin ve cos değerleri de eklenir. 
+
+```{r}
+veri_mev_yeni2 <- as.data.frame(cbind(veri_ts, t, sin1, cos1, sin2, cos2))
+
+names(veri_mev_yeni2)<- c("y", "t", "sin1", "cos1", "sin2", "cos2")
+
+knitr::kable(head(veri_mev_yeni2), align = "c")
+```
+
+**İkinci Harmonik için regresyon modelinin kurulması:**
+
+```{r}
+regresyon.model2<-lm(data= veri_mev_yeni2, y ~ t+sin1+cos1+sin2+cos2)
+summary(regresyon.model2)
+```
+
+**İkinci Harmonik için Regresyon modeli sonucuna göre:**
+
+- Coefficients kısmındaki **cos2 terimi dışındaki** p değerlerinin hepsi < α =0.05 olduğundan, cos2 dışındaki **terimlerin önemli olduğunu** söyleyebiliriz.
+
+- p-value değeri < α =0.05 olduğundan kurulan **regresyon modelinin anlamlı olduğunu** söyleyebiliriz.
+
+- **cos2 terimi** katsayısı = 0.209  > α =0.05 olduğu için, cos2 terimine ait katsayının **anlamsız olduğunu** söyleyebiliriz.
+
+
+>Bu durumda cos2 değişkeni çıkarılarak tekrardan model anlamlılığına bakılır.
+
+**cos2 teriminin olmadığı modelin oluşturulması:**
+
+```{r}
+regresyon.model3<-lm(data= veri_mev_yeni2, y ~ t+sin1+cos1+sin2)
+summary(regresyon.model3)
+```
+### Modelin Anlamlılığı:
+
+Ho: Model Anlamsızdır.<br/>
+H1: Model Anlamlıdır.
+
+- p-value değeri < α =0.05 olduğundan Ho RED. Kurulan regresyon modelinin **anlamlı olduğunu** söyleyebiliriz.
+
+
+### Durbin-Watson Testi:
+
+Ho: Otokorelasyon sorunu yoktur.<br/>
+H1: Otokorelasyon sorunu vardır.
+
+```{r}
+library(fpp)
+dwtest(data= veri_mev_yeni2, y ~ t+sin1+cos1+sin2)
+```
+
+**Durbin-Watson Test sonucuna göre:**
+
+- DW= 0,3644 değeri 2 ye yakın bir değer olmadığı için (p = 0 < α =0.05) Ho RED. Otokorelasyon sorunu vardır. 
+
+
+### Toplamsal Model ile kurulan Regresyon Analizinin Denklemi :
+
+>Zt = 149488.533 + 368.601t - 14718.379sin(2πt/12) - 7451.037cos(2πt/12) + 22502.238sin(4πt/12) + εi
+olur.
+
+## 4.1.3 Kurulan Model İçin Tahmin, Hata ve Tahminin Sınır Serileri 
+
+**Zt = 149488.533 + 368.601t - 14718.379sin(2πt/12) - 7451.037cos(2πt/12) + 22502.238sin(4πt/12) + εi modeli için:**
+
+
+### Tahmin:
+
+```{r}
+tahmin_model3<-predict(regresyon.model3)
+plot.ts(tahmin_model3)
+```
+
+
+### Alt ve Üst Sınırlar:
+
+```{r}
+sinir_model3<-predict(regresyon.model3, interval = 'confidence' ,level = .95)
+plot.ts(sinir_model3)
+```
+
+### Hata:
+
+```{r}
+hata_model3<-resid(regresyon.model3)
+plot.ts(hata_model3)
+```
+
+### Gerçek Elektrik Tüketimi ve Tahmin Sınırlarının Birlikte Çizilmesi
+
+```{r}
+plot( window(veri_mev_yeni2$y),
+      xlab="", ylab="", type="l", lty=3, col=2, lwd=2)
+lines(window(sinir_model3[,2]) ,type="l",lty=1,col=4,lwd=2)
+lines(window(sinir_model3[,3]) ,type="l",lty=1,col=3,lwd=2)
+legend("topleft",c(expression(paste(Elektri_Tüketimi)),
+                   expression(paste(Altsinir)),
+                   expression(paste(Üstsinir))),
+       lwd=c(2,2,3),lty=c(3,1,2), cex=0.7, col=c(2,4,3))
+
+```
+
+## 4.1.4 Modelin Güvenirliği
+
+Toplamsal Regresyon modelinin orijinal seri üzerinde geçerli bir model olup olmadığını kontrol edelim. 
+
+
+**Orijinal seri ile tahmin serisinin uyumu:**
+
+```{r}
+plot( window(veri_mev_yeni2$y), 
+      xlab="Zaman", ylab="",type="l",lty=1, col=4, lwd=2)
+lines( window(tahmin_model3),lty=3,col=2,lwd=3)
+legend("topleft",c(expression(paste(Elektrik_tüketimi)),
+                   expression(paste(Tahmin))),
+       lwd=c(2,2),lty=c(1,3), cex=0.6, col=c(4,2))
+```
+
+
+**Zaman Serisi Grafiğine bakıldığında:**
+
+- Tahmin ile orijinal seri arasında sapmanın yüksek olduğunu dolayısıyla **uyum göstermediğini** söyleyebiliriz. 
+
+- Fakat emin olmak için hataların akgürültü olup olmadığına bakabiliriz.
+
+### Hatalar Akgürültü mü? 
+
+### ! BİLGİ !
+>_**Akgürültü Serisi:** Durağanlık koşullarından tek farkı
+kovaryans teriminin sıfır olmasıdır. Dolayısıyla, akgürültü serisi durağan bir seriden farklı özellikler gösterir. <br/> Örneğin, akgürültü serisi rasgele hareketlere sahip modellenemez bir seri iken durağan serilerin hareketlerinin belli bir sistematiği vardır ve bu nedenle modellenebilmektedir. Akgürültü serisinin tüm gecikmelerindeki otokorelasyon ve kısmi otokorelasyon değerleri önemsizdir._
+
+> ACF ve PACF grafıklerinin yorumunda serinin akgürültü serisi olup olmadığına net bir şekilde karar verilemiyorsa, yani ACF veya PACF grafiklerinde birinci gecikme dışında az sayıda güven sınırını biraz geçen ilişkiler var ise bu durumda seriye Box-Ljung Testi uygulanır.
+
+>Eğer her gecikme için Box-Ljung Testi sonucunda **Ho : rk = 0** yokluk hipotezi kabul edilirse serinin akgürültü serisi olduğu söylenir.
+
+>>>**Kaynak:** _Prof. Dr. Cem Kadılar, Dr. Hatice Öncel Çekim SPSS ve R Uygulamalı Zaman Serileri Analizine Giriş_ 
+
+>> Ho: Hatalar Akgürültüdür.(Hatalar arasında ilişki yoktur.) <br/>
+H1: Hatalar Akgürültü değildir.(Hatalar arasında ilişki vardır.)
+
+
+**Hatalar için ACF Grafiği:**
+
+```{r}
+Acf(hata_model3, lag.max = 42,  ylim=c(-1,1), lwd=5,main="Hatalar için ACF Grafiği")
+```
+
+
+**Hatalar için ACF Grafiğine bakıldığında:**
+
+- Tüm gecikmelerin sınırları geçtiği gözükmektedir.
+
+- Hataların akgürültü olmadığı (Ho RED) Söylenebilir. Box-Ljung testi ile de bunu görebiliriz.
+
+**Box-Ljung Testi:** 
+```{r}
+Box.test(hata_model3,type = "Ljung",lag = 42)
+```
+
+**Box-Ljung test sonucuna bakıldığında:**
+
+- p değeri = 0 < α =0.05 'dir. Yani Ho RED.
+
+- Hatalar Arasında **ilişki olduğunu** yani hataların *akgürültü olmadığını* söyleyebiliriz.
+
+
+## 4.1.5 SONUÇ
+
+**Bir önceki adımda görüldüğü üzere;** 
+
+- _Hatalar Arasında ilişki olduğunu yani hataların akgürültü olmadığını gördük._ 
+
+- _**Sonuç olarak ABD'deki aylık elektrik tüketimi serisinin Regresyon analizi için kullanılan Toplamsal Regresyon denklemi uygun değildir.**_
+
+
+
+## 4.2 Çarpımsal Model İle Regresyon Analizi
+
+### ! BİLGİ !
+>Bu modelde serideki dalgalanma büyüklükleri düzenli bir şekilde artmaktadır. Bu model regresyon analizine uygulandığında trende ve mevsimsel dalgalanmaya sahip bir serinin analizi için uygun olan bir regresyon denklemi:
+
+![ ](https://raw.githubusercontent.com/gungorrbaris/zaman-serisi-analizi-R/main/png/regresyon%C3%87arp%C4%B1msal.png)
+
+biçiminde olmaktadır.
+
+
+>Burada i indisli toplam serinin trendini, i ve j indisli iki toplam ise mevsimselligin çarpımsal biçimde oldugunu göstermektedir.
+
+>Bu denklemde bağımsız degiskenin t serisi ile sinüs fonksiyonu serisini çarpımı, t serisi ile kosinüs fonksiyonu serisinin çarpımı t serisi olduguna dikkat edilmelidir.
+
+>>**Kaynak:** _Prof. Dr. Cem Kadılar, Dr. Hatice Öncel Çekim SPSS ve R Uygulamalı Zaman Serileri Analizine Giriş_ 
+
+
+## 4.2.1 t, Sin ve Cos Terimlerinin oluşturulması
+
+_Serimiz, hem trende hem de mevsimsel dalgalanmaya sahip olduğundan regresyon modelinin; t, sinüs ve kosinüs terimlerini içermesi gerekmektedir._
+
+```{r}
+t <- 1: 1: 587
+```
+
+
+Veride 144 gözlem bulunduğu için bu değerler girilmiştir.
+
+
+```{r}
+s1<-t*sin(2*3.1416*t/12)
+c1<-t*cos(2*3.1416*t/12)
+```
+
+
+Sin ve Cos değerleri bulunurken yazılan formüldeki 12 değeri, daha önceki bölümlerde bulduğumuz periyottur. 
+ 
+**veri, t, sin ve cos terimleri ile yeni bir veri oluşturulur:**
+
+```{r}
+veri_mevC_yeni <- as.data.frame(cbind(veri_ts, t, s1, c1))
+names(veri_mevC_yeni)<- c("y", "t", "s1", "c1")
+
+knitr::kable(head(veri_mevC_yeni), align = "c")
+```
+
+## 4.2.2 Regresyon Modelinin Oluşturulması
+
+### Birinci Harmonik
+
+Oluşturulan yeni veri ile regresyon analizi yapılır. 
+
+```{r}
+regresyon.modelC1<-lm(data = veri_mevC_yeni, y ~ t+s1+c1)
+summary(regresyon.modelC1)
+```
+
+**Birinci Harmonik için Regresyon modeli sonucuna göre:**
+
+- Coefficients kısmındaki p değerlerinin hepsi < α =0.05 olduğundan, modeldeki **tüm terimlerin önemli olduğunu** söyleyebiliriz. 
+
+- p-value değeri < α =0.05 olduğundan kurulan **regresyon modelinin anlamlı olduğunu** söyleyebiliriz.
+
+
+### İkinci Harmonik
+
+Birinci harmonikte tüm terimler anlamlı çıktığından ikinci harmonikte de regresyon denklemine katılırlar. 
+
+**Sin, Cos Terimlerinin oluşturulması:**
+
+```{r}
+s2<-t*sin(2*3.1416*2*t/12)
+c2<-t*cos(2*3.1416*2*t/12)
+```
+
+
+**Yeni Verinin Oluşturulması:**
+
+Yeni veri oluşturulurken birinci harmonikte kullanılan sin ve cos değerleri de eklenir. 
+
+```{r}
+veri_mevC_yeni2 <- as.data.frame(cbind(veri_ts, t, s1, c1, s2, c2))
+
+names(veri_mevC_yeni2)<- c("y", "t", "s1", "c1", "s2", "c2")
+
+knitr::kable(head(veri_mevC_yeni2), align = "c")
+```
+
+**İkinci Harmonik için regresyon modelinin kurulması:**
+
+```{r}
+regresyon.modelC2<-lm(data= veri_mevC_yeni2, y ~ t+s1+c1+s2+c2)
+summary(regresyon.modelC2)
+```
+
+**İkinci Harmonik için Regresyon modeli sonucuna göre:**
+
+- Coefficients kısmındaki p değerlerinin hepsi < α =0.05 olduğundan, modeldeki **tüm terimlerin önemli olduğunu** söyleyebiliriz. 
+
+- p-value değeri < α =0.05 olduğundan kurulan **regresyon modelinin anlamlı olduğunu** söyleyebiliriz.
+
+### Üçüncü Harmonik
+
+İkinci harmonikte tüm terimler anlamlı çıktığından ikinci harmonikte de regresyon denklemine katılırlar. 
+
+**Sin, Cos Terimlerinin oluşturulması:**
+
+```{r}
+s3<-t*sin(2*3.1416*3*t/12)
+c3<-t*cos(2*3.1416*3*t/12)
+```
+
+
+**Yeni Verinin Oluşturulması:**
+
+Yeni veri oluşturulurken birinci harmonikte kullanılan sin ve cos değerleri de eklenir. 
+
+```{r}
+veri_mevC_yeni3 <- as.data.frame(cbind(veri_ts, t, s1, c1, s2, c2,s3,c3))
+
+names(veri_mevC_yeni3)<- c("y", "t", "s1", "c1", "s2", "c2","s3", "c3")
+
+knitr::kable(head(veri_mevC_yeni3), align = "c")
+```
+
+**Üçüncü Harmonik için regresyon modelinin kurulması:**
+
+```{r}
+regresyon.modelC3<-lm(data= veri_mevC_yeni3, y ~ t+s1+c1+s2+c2+s3+c3)
+summary(regresyon.modelC3)
+```
+
+**Üçüncü Harmonik için Regresyon modeli sonucuna göre:**
+
+- Coefficients kısmındaki **s3 terimi dışındaki** p değerleri hepsi < α =0.05 olduğundan, s3 dışındaki **terimlerin önemli olduğunu** söyleyebiliriz.
+
+- p-value değeri < α =0.05 olduğundan kurulan **regresyon modelinin anlamlı olduğunu** söyleyebiliriz.
+
+- **s3 terimi** katsayısı = 0.457328  > α =0.05 olduğu için, s3 terimine ait katsayının **anlamsız olduğunu** söyleyebiliriz.
+
+
+>Bu durumda s3 değişkeni çıkarılarak tekrardan model anlamlılığına bakılır.
+
+
+**s3 teriminin olmadığı modelin oluşturulması:**
+
+```{r}
+regresyon.modelC4<-lm(data= veri_mevC_yeni3, y ~ t+s1+c1+s2+c2+c3)
+summary(regresyon.modelC4)
+```
+### Modelin Anlamlılığı:
+
+Ho: Model Anlamsızdır.<br/>
+H1: Model Anlamlıdır.
+
+- p-value değeri < α =0.05 olduğundan Ho RED. Kurulan regresyon modelinin **anlamlı olduğunu** söyleyebiliriz.
+
+
+### Durbin-Watson Testi:
+
+Ho: Otokorelasyon sorunu yoktur.<br/>
+H1: Otokorelasyon sorunu vardır.
+
+```{r}
+library(fpp)
+
+dwtest(data= veri_mevC_yeni3, y ~ t+s1+c1+s2+c2+c3)
+```
+
+**Durbin-Watson Test sonucuna göre:**
+
+- DW= 0,2914 değeri 2 ye yakın bir değer olmadığı için (p = 0 < α =0.05) Ho RED. Otokorelasyon sorunu vardır. 
+
+
+### Çarpımsal Model ile kurulan Regresyon Analizinin Denklemi :
+
+>Zt = 149480.840 + 368.563t - 47.045sin(2πt/12) - 26.825cos(2πt/12) + 68.915sin(4πt/12) + 8.295cos(4πt/12) + 11.957cos(6πt/12) + εi
+olur.
+
+## 4.2.3 Kurulan Model İçin Tahmin, Hata ve Tahminin Sınır Serileri 
+
+**Zt = 149480.840 + 368.563t - 47.045sin(2πt/12) - 26.825cos(2πt/12) + 68.915sin(4πt/12) + 8.295cos(4πt/12) + 11.957cos(6πt/12) + εi modeli için:**
+
+
+### Tahmin:
+
+```{r}
+tahmin_modelC4<-predict(regresyon.modelC4)
+plot.ts(tahmin_modelC4)
+```
+
+
+### Alt ve Üst Sınırlar:
+
+```{r}
+sinir_modelC4<-predict(regresyon.modelC4, interval = 'confidence' ,level = .95)
+plot.ts(sinir_modelC4)
+```
+
+### Hata:
+
+```{r}
+hata_modelC4<-resid(regresyon.modelC4)
+plot.ts(hata_modelC4)
+```
+
+### Gerçek Elektrik Tüketimi ve Tahmin Sınırlarının Birlikte Çizilmesi
+
+```{r}
+plot( window(veri_mevC_yeni3$y),
+      xlab="", ylab="", type="l", lty=3, col=2, lwd=2)
+lines(window(sinir_modelC4[,2]) ,type="l",lty=1,col=4,lwd=2)
+lines(window(sinir_modelC4[,3]) ,type="l",lty=1,col=3,lwd=2)
+legend("topleft",c(expression(paste(Elektri_Tüketimi)),
+                   expression(paste(Altsinir)),
+                   expression(paste(Üstsinir))),
+       lwd=c(2,2,3),lty=c(3,1,2), cex=0.7, col=c(2,4,3))
+
+```
+
+## 4.2.4 Modelin Güvenirliği
+
+Çarpımsal Regresyon modelinin orijinal seri üzerinde geçerli bir model olup olmadığını kontrol edelim. 
+
+
+**Orijinal seri ile tahmin serisinin uyumu:**
+
+```{r}
+plot( window(veri_mevC_yeni3$y), 
+      xlab="Zaman", ylab="",type="l",lty=1, col=4, lwd=2)
+lines( window(tahmin_modelC4),lty=3,col=2,lwd=3)
+legend("topleft",c(expression(paste(Elektrik_tüketimi)),
+                   expression(paste(Tahmin))),
+       lwd=c(2,2),lty=c(1,3), cex=0.6, col=c(4,2))
+```
+
+
+**Zaman Serisi Grafiğine bakıldığında:**
+
+- Tahmin ile orijinal seri arasında sapmanın yüksek olduğunu dolayısıyla **uyum göstermediğini** söyleyebiliriz. 
+
+- Fakat emin olmak için hataların akgürültü olup olmadığına bakabiliriz.
+
+### Hatalar Akgürültü mü? 
+
+### ! BİLGİ !
+>_**Akgürültü Serisi:** Durağanlık koşullarından tek farkı
+kovaryans teriminin sıfır olmasıdır. Dolayısıyla, akgürültü serisi durağan bir seriden farklı özellikler gösterir. <br/> Örneğin, akgürültü serisi rasgele hareketlere sahip modellenemez bir seri iken durağan serilerin hareketlerinin belli bir sistematiği vardır ve bu nedenle modellenebilmektedir. Akgürültü serisinin tüm gecikmelerindeki otokorelasyon ve kısmi otokorelasyon değerleri önemsizdir._
+
+> ACF ve PACF grafıklerinin yorumunda serinin akgürültü serisi olup olmadığına net bir şekilde karar verilemiyorsa, yani ACF veya PACF grafiklerinde birinci gecikme dışında az sayıda güven sınırını biraz geçen ilişkiler var ise bu durumda seriye Box-Ljung Testi uygulanır.
+
+>Eğer her gecikme için Box-Ljung Testi sonucunda **Ho : rk = 0** yokluk hipotezi kabul edilirse serinin akgürültü serisi olduğu söylenir.
+
+>>>**Kaynak:** _Prof. Dr. Cem Kadılar, Dr. Hatice Öncel Çekim SPSS ve R Uygulamalı Zaman Serileri Analizine Giriş_ 
+
+>> Ho: Hatalar Akgürültüdür.(Hatalar arasında ilişki yoktur.) <br/>
+H1: Hatalar Akgürültü değildir.(Hatalar arasında ilişki vardır.)
+
+
+**Hatalar için ACF Grafiği:**
+
+```{r}
+Acf(hata_modelC4, lag.max = 42,  ylim=c(-1,1), lwd=5,main="Hatalar için ACF Grafiği")
+```
+
+
+**Hatalar için ACF Grafiğine bakıldığında:**
+
+- Tüm gecikmelerin sınırları geçtiği gözükmektedir.
+
+- Hataların akgürültü olmadığı (Ho RED) Söylenebilir. Box-Ljung testi ile de bunu görebiliriz.
+
+**Box-Ljung Testi:** 
+
+```{r}
+Box.test(hata_modelC4,type = "Ljung",lag = 42)
+```
+
+**Box-Ljung test sonucuna bakıldığında:**
+
+- p değeri = 0 < α =0.05 'dir. Yani Ho RED.
+
+- Hatalar Arasında **ilişki olduğunu** yani hataların *akgürültü olmadığını* söyleyebiliriz.
+
+
+## 4.2.5 SONUÇ
+
+**Bir önceki adımda görüldüğü üzere;** 
+
+- _Hatalar Arasında ilişki olduğunu yani hataların akgürültü olmadığını gördük._ 
+
+- _**Sonuç olarak ABD'deki aylık elektrik tüketimi serisinin Regresyon analizi için kullanılan Çarpımsal Regresyon denklemi uygun değildir.**_
+
+
+## 4.Bölüm Özet
+
+Bu bölümde; Mevsimsel seriler için kullanılan Regresyon Analizi yöntemleri ile ABD'deki aylık elektrik tüketimini tahmin etmeye çalıştık. Fakat uyguladığımız iki model de tahmin etmekte eksik kaldı.
+
+Bundan sonra sırasıyla:
+
+- Üstel Düzleştirme Yöntemi
+
+- Box-Jenkins Modelleri uygulanacaktır. 
+
+
+
+# BÖLÜM 5: WİNTERS ÜSTEL DÜZLEŞTİRME YÖNTEMİ
+
+>Bu bölüme kadar anlatılan yöntemler, zaman içinde değişmeyen parametre
+varsayımına uygun serilerin tahminlerinde kullanılmaktaydı. Bir başka
+deyişle, bu tür seriler _deterministik_ trende sahipti. Ancak birçok zaman serisinin hareketi regresyon doğrusuna ya da eğrisine dönme eğilimi göstermemektedir.
+Yani, zaman içinde serinin trend yapısı rasgele değişebilmektedir. Bu durumda, regresyon katsayısı sabit bir değer değil her t zamanında
+değişen değerlere sahip rasgele bir değişken olmaktadır. Böyle bir serinin tahınininin yapılabilmesi için elde edilen son gözlem (T' inci döneme ait gözlem) değeri ile son döneme ait tahminin güncelleştirilmiş hali kullanılır.
+
+>Bu bölümde, zaman içinde değişen parametrelere sahip olan ve bir regresyon doğrusuna ya da eğrisine dönme eğilimi olmadığından tek bir regresyon doğrusu ya da eğrisiyle açıklanamayan, yani kısaca _stokastik trende_ sahip olan serilerin analizi üzerinde durulacaktır.
+
+
+>Zaman Serileri için Üstel Düzleştirme Yöntemi, serinin mevsimsel olup olmamasına göre değişiklik göstermektedir.
+
+>>**Sadece trende sahip seriler (Mevsimsel olmayan) için;**<br/>
+Basit Üstel Düzleştirme Yöntemi<br/>
+Holt Üstel Düzleştirme Yöntemi
+gibi yöntemler kullanılabilir.
+
+>>**Hem trende hem de mevsimselliğe sahip seriler için** ise Winters Üstel Düzleştirme Yöntemini uygulayabiliriz. 
+
+
+>>**Kaynak:** _Prof. Dr. Cem Kadılar, Dr. Hatice Öncel Çekim SPSS ve R Uygulamalı Zaman Serileri Analizine Giriş_ 
+
+**[Buradaki](#mevsimsellik) başlıkta; Trende sahip serinin birinci farkını aldığımızda serinin aynı zamanda mevsimselliğe sahip olduğunu ACF grafiğine bakarak açıklamıştık.**
+
+>Kullandığımız veri mevsimselliğe sahip olduğu için bu bölümde sadece **Winters Üstel Düzleştirme Yöntemi** gösterilecektir.
+
+
+>Winters Üstel Düzleştirme Yöntemi için aşağıdaki formüller kullanılacaktır:
+
+![ ](https://raw.githubusercontent.com/gungorrbaris/TR-time.series.analysis-R/main/png/ortalama%20d%C3%BCzeyin%20g%C3%BCncelle%C5%9Ftirilmesi.png)
+
+![ ](https://raw.githubusercontent.com/gungorrbaris/TR-time.series.analysis-R/main/png/Seri%20E%C4%9Filiminin%20g%C3%BCncelle%C5%9Ftirilmesi.png)
+
+![ ](https://raw.githubusercontent.com/gungorrbaris/TR-time.series.analysis-R/main/png/mevsimsel%20bile%C5%9Fenin%20g%C3%BCncellenmesi.png)
+
+![ ](https://raw.githubusercontent.com/gungorrbaris/TR-time.series.analysis-R/main/png/g%C3%B6zlem%20tahminleri.png)
+
+>>**Kaynak:** _Prof. Dr. Cem Kadılar, Dr. Hatice Öncel Çekim SPSS ve R Uygulamalı Zaman Serileri Analizine Giriş_ 
+
+
+## 5.1 Toplamsal Winters Yöntemi
+
+Verilerin trend’den bağımsız ve mevsimsel hareketlerin büyüklüğünün zaman içinde sabit olduğu varsayılır.
+
+
+### 5.1.1 α, β ve γ'nın Belirlenmesi:
+
+Kurulan model toplamsal model olacağı için fonksiyon içindeki model değişkeni "AAA" olmalıdır. 
+
+```{r}
+Winters1<- forecast::ets(veri_ts, model = "AAA")
+summary(Winters1)
+```
+
+**Model çıktısına bakıldığında:**
+
+- l = 142359.4408 -> ortalama düzeyin başlangıç değeridir.
+
+- b = 650.5006   -> eğimin başlangıç değeridir. 
+
+- s değerine bakıldığında ise 12 farklı değer (periyot sayımız 12 olduğu için) vardır. Bu değerler mevsimsel terimin başlangıç değerleridir.
+Başlangıç değerleri kullanılarak Optimal düzleştirme katsayıları,
+   * α = 0.35
+   * β = 0.0015
+   * γ = 0.376  olarak elde edilmiştir. 
+
+#### Toplamsal Winters Modeli HKO
+- Hata kareler ortalaması-HKO = 6965.969^2 bulunmuştur. 
+ 
+
+### 5.1.2 Tahmin, ACF ve Dağılım Grafikleri:
+
+
+```{r}
+library(forecast)
+checkresiduals(Winters1, lag = 42)
+```
+
+### 5.1.3 Tahmin ve Hata Serilerinin Bulunması:
+
+α, β ve γ düzleştirme katsayıları kullanılarak serinin tahmin değerleri aşağıdaki gibi bulunabilir. 
+
+
+```{r}
+tahmin_win1<- Winters1[["fitted"]]
+```
+
+
+**Tahmin edilen ilk 12 değeri (2022 yılı ABD elektrik tüketim tahminlerini) görelim:**
+
+```{r}
+ongoru1 <- forecast(Winters1,h=12)
+knitr::kable(ongoru1[["mean"]],col.names = "2022 yılı ABD elektrik tüketimi - Toplamsal Winters Tahminleri", align = "c")
+```
+
+
+**Tahmin ve Orijinal serileri birlikte çizdirelim:**
+
+
+```{r}
+plot( window(veri_ts), 
+      xlab="Zaman", ylab="",lty=1, col=4, lwd=2)
+lines( window(tahmin_win1) ,lty=3,col=2,lwd=3)
+legend("topleft",c(expression(paste(Elektrik_Tuketimi)),
+               expression(paste(Top.Winters_Tahmini))),
+       lwd=c(2,2),lty=c(1,3), cex=0.7, col=c(4,2))
+```
+
+**Zaman Serisi Grafiğine bakıldığında:**
+
+- Tahmin ile orijinal seri arasında **uyum olduğu** görülmektedir. Yani görsel olarak Toplamsal Winters yöntemi ile yapılan tahminlerin gerçeğe yakın olduğunu söyleyebiliriz. 
+
+- Fakat emin olmak için hataların akgürültü olup olmadığına bakmamız gerekmektedir.
+
+**Hata Serisi:**
+
+>α, β ve γ düzleştirme katsayıları kullanılarak serinin hata değerleri aşağıdaki gibi bulunabilir.
+
+```{r}
+hata_win1<- Winters1[["residuals"]]
+plot.ts(hata_win1)
+```
+
+
+### Hatalar Akgürültü mü? 
+
+
+>> Ho: Hatalar Akgürültüdür.(Hatalar arasında ilişki yoktur.) <br/>
+H1: Hatalar Akgürültü değildir.(Hatalar arasında ilişki vardır.)
+
+
+**Hatalar için ACF Grafiği:**
+
+```{r}
+Acf(hata_win1, lag.max = 42,  ylim=c(-1,1), lwd=5,main="Hatalar için ACF Grafiği")
+```
+
+
+**Hatalar için ACF Grafiğine bakıldığında:**
+
+- İlk dört gecikmeden üç tanesinin sınırları geçtiği, birinin sınırlar içinde kaldığı görülmektedir. 
+
+- Hataların akgürültü olduğunu söyleyebiliriz. Yani Hatalar arasında ilişki yoktur. Kurulan model tahmin etmede kullanılabilir. 
+
+
+## 5.2.4 SONUÇ
+
+**Bir önceki adımda görüldüğü üzere;** 
+
+- _Hatalar Arasında ilişki olmadığını yani hataların akgürültü olduğunu gördük._ 
+
+- _**Sonuç olarak ABD'deki aylık elektrik tüketimi serisinin Regresyon analizi için kullanılan Toplamsal Winters Üstel Düzleştirme Yöntemi uygundur.**_
+
+
+
+## 5.2 Çarpımsal Winters Yöntemi
+
+Mevsimsel hareketlerin trende bağlı olarak değiştiği ve trendin bir çarpanı olduğu varsayılmaktadır. Genellikle çarpımsal model tercih edilmektedir.
+
+
+### 5.2.1 α, β ve γ'nın Belirlenmesi:
+
+Kurulan model çarpımsal model olacağı için fonksiyon içindeki model değişkeni "MAM" olmalıdır. 
+
+```{r}
+Winters2<- forecast::ets(veri_ts, model = "MAM")
+summary(Winters2)
+```
+
+**Model çıktısına bakıldığında:**
+
+- l = 141713.6213 -> ortalama düzeyin başlangıç değeridir.
+
+- b = 564.3679    -> eğimin başlangıç değeridir. 
+
+- s değerine bakıldığında ise 12 farklı değer (periyot sayımız 12 olduğu için) vardır. Bu değerler mevsimsel terimin başlangıç değerleridir.
+Başlangıç değerleri kullanılarak Optimal düzleştirme katsayıları,
+   * α = 0.3292
+   * β = 0
+   * γ = 0.2528    olarak elde edilmiştir.
+
+#### Çarpımsal Winters Modeli HKO
+- Hata kareler ortalaması-HKO = 6176.062^2 bulunmuştur. 
+ 
+
+### 5.2.2 Tahmin, ACF ve Dağılım Grafikleri:
+
+
+```{r}
+library(forecast)
+checkresiduals(Winters2, lag = 42)
+```
+
+### 5.2.3 Tahmin ve Hata Serilerinin Bulunması:
+
+α, β ve γ düzleştirme katsayıları kullanılarak serinin tahmin değerleri aşağıdaki gibi bulunabilir. 
+
+
+```{r}
+tahmin_win2<- Winters2[["fitted"]]
+```
+
+
+**Tahmin edilen ilk 12 değeri (2022 yılı ABD elektrik tüketim tahminlerini) görelim:**
+
+```{r}
+ongoru2 <- forecast(Winters2,h=12)
+knitr::kable(ongoru2[["mean"]],col.names = "2022 yılı ABD elektrik tüketimi - Çarpımsal Winters Tahminleri", align = "c")
+```
+
+
+**Tahmin ve Orijinal serileri birlikte çizdirelim:**
+
+
+```{r}
+plot( window(veri_ts), 
+      xlab="Zaman", ylab="",lty=1, col=4, lwd=2)
+lines( window(tahmin_win2) ,lty=3,col=2,lwd=3)
+legend("topleft",c(expression(paste(Elektrik_Tuketimi)),
+               expression(paste(Çar.Winters_Tahmini))),
+       lwd=c(2,2),lty=c(1,3), cex=0.7, col=c(4,2))
+```
+
+**Zaman Serisi Grafiğine bakıldığında:**
+
+- Tahmin ile orijinal seri arasında **uyum olduğu** görülmektedir. Yani görsel olarak Çarpımsal Winters yöntemi ile yapılan tahminlerin gerçeğe yakın olduğunu söyleyebiliriz. 
+
+- Fakat emin olmak için hataların akgürültü olup olmadığına bakmamız gerekmektedir.
+
+**Hata Serisi:**
+
+>α, β ve γ düzleştirme katsayıları kullanılarak serinin hata değerleri aşağıdaki gibi bulunabilir.
+
+```{r}
+hata_win2<- Winters2[["residuals"]]
+plot.ts(hata_win2)
+```
+
+
+### Hatalar Akgürültü mü? 
+
+
+>> Ho: Hatalar Akgürültüdür.(Hatalar arasında ilişki yoktur.) <br/>
+H1: Hatalar Akgürültü değildir.(Hatalar arasında ilişki vardır.)
+
+
+**Hatalar için ACF Grafiği:**
+
+```{r}
+Acf(hata_win2, lag.max = 42,  ylim=c(-1,1), lwd=5,main="Hatalar için ACF Grafiği")
+```
+
+
+**Hatalar için ACF Grafiğine bakıldığında:**
+
+- İlk dört gecikmeden üç tanesinin sınırları geçtiği, birinin sınırlar içinde kaldığı görülmektedir. 
+
+- Hataların akgürültü olduğunu söyleyebiliriz. Yani Hatalar arasında ilişki yoktur. Kurulan model tahmin etmede kullanılabilir. 
+
+
+## 5.2.4 SONUÇ
+
+**Bir önceki adımda görüldüğü üzere;** 
+
+- _Hatalar Arasında ilişki olmadığını yani hataların akgürültü olduğunu gördük._ 
+
+- _**Sonuç olarak ABD'deki aylık elektrik tüketimi serisinin Regresyon analizi için kullanılan Çarpımsal Winters Üstel Düzleştirme Yöntemi uygundur.**_
+
+## 5.3 Peki hangi model daha iyi?
+
+winters yöntemlerinde kullanılan iki yöntemin de yaptıkları tahminlerin orijinal seri ile karşılaştırmasında uyumlu sonuçlar verdiğini ve bu modellerin tahmin için kullanılabileceğini gördük.
+
+**Toplamsal ve Çarpımsal Winters 2022 Tahminleri:**
+
+```{r}
+ongoru2022 <- as.data.frame(cbind(ongoru1[["mean"]],ongoru2[["mean"]]))
+colnames(ongoru2022) <- c("Toplamsal Winters", "Çarpımsal Winters")
+knitr::kable(ongoru2022, align = "c")
+```
+
+
+- İki modelin de 2022 yılı elektrik kullanımı tahminlerinin yakın olduğunu söyleyebiliriz. 
+
+>Peki hangi model bu veri için daha iyi?
+
+Bu durumda iki yöntemin de HKO (Hata Kareler Ortalaması) değerlerine bakmamız gerekir. 
+
+Toplamsal Winters Yöntemi [HKO](#toplamsal-winters-modeli-hko) = 6965.969^2 <br/>
+Çarpımsal Winters Yöntemi [HKO](#çarpımsal-winters-modeli-hko) = 6176.062^2
+
+**Çarpımsal Winters yönteminin HKO'sı, Toplamsal Winters yönteminden küçük olduğu için; Çarpımsal Winters yöntemi seriyi tahmin etmek için daha uygun olan yöntemdir. **
+
+## 5.Bölüm Özet
+
+Bu bölümde; Mevsimsel seriler için kullanılan Üstel Düzleştirme yöntemleri ile ABD'deki aylık elektrik tüketimini tahmin etmeye çalıştık. Uyguladığımız iki model de veriyi tahmin etmede iyi sonuçlar verdi. Bu iki model arasında Hata Kareler Ortalaması daha küçük olan Çarpımsal Winters yönteminin daha iyi olduğu sonucuna vardık.
+
+Sonuç olarak ABD'deki aylık elektrik tüketimi serisinin tahmini için  Winters Üstel Düzleştirme yöntemleri uygundur ve kullanılabilir.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
